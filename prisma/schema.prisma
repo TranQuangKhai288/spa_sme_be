@@ -1,0 +1,143 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Bảng SpaInfo (Thông tin chung Spa)
+model SpaInfo {
+  id           String @id @default("spa-001")
+  name         String
+  tagline      String
+  phone        String
+  email        String
+  address      String
+  hoursWeekday String
+  hoursWeekend String
+  version      String
+}
+
+// Bảng Client (Khách hàng)
+model Client {
+  id           String        @id @default(uuid())
+  name         String
+  avatar       String
+  tier         String
+  phone        String
+  email        String
+  totalVisits  Int           @default(0)
+  totalSpent   BigInt        @default(0)
+  memberPoints Int           @default(0)
+  lastVisit    String
+  joinDate     String
+  notes        String?
+  appointments Appointment[]
+}
+
+// Bảng Therapist (Kỹ thuật viên)
+model Therapist {
+  id           String        @id @default(uuid())
+  name         String
+  avatar       String
+  specialty    String
+  experience   String
+  rating       Float         @default(5.0)
+  totalReviews Int           @default(0)
+  availability String        @default("available")
+  bio          String
+  services     String[]
+  appointments Appointment[]
+}
+
+// Bảng Service (Dịch vụ)
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  category    String
+  duration    Int
+  price       BigInt
+  priceUSD    Int
+  description String
+  features    String[]
+  image       String
+  popular     Boolean  @default(false)
+  featured    Boolean  @default(false)
+}
+
+// Bảng Appointment (Lịch hẹn)
+model Appointment {
+  id           String    @id @default(uuid())
+  clientId     String
+  client       Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientName   String
+  clientTier   String
+  clientAvatar String
+  notes        String
+  servicesUsed String[]
+  therapist    String
+  therapistId  String
+  therapistRel Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+  startTime    String
+  endTime      String
+  date         String
+  status       String
+  statusLabel  String
+  expectedPrice BigInt    @default(0)
+  finalRevenue  BigInt    @default(0)
+  history       Json      @default("[]")
+}
+
+// Bảng TreatmentProgress (Tiến độ liệu trình)
+model TreatmentProgress {
+  id                String @id @default(uuid())
+  clientId          String
+  clientName        String
+  packageName       String
+  totalSessions     Int
+  completedSessions Int
+  nextDate          String
+  nextTime          String
+  color             String
+}
+
+// Bảng Workflow (Quy trình tự động)
+model Workflow {
+  id        String   @id @default(uuid())
+  name      String
+  trigger   String
+  filter    String
+  actions   Json     // Lưu danh sách hành động (mảng JSON)
+  active    Boolean  @default(true)
+  totalSent Int      @default(0)
+}
+
+// Bảng Notification (Thông báo)
+model Notification {
+  id       String  @id @default(uuid())
+  type     String
+  title    String
+  message  String
+  time     String
+  read     Boolean @default(false)
+  priority String  @default("normal")
+}
+
+// Bảng RevenueChartItem (Biểu đồ doanh thu tuần)
+model RevenueChartItem {
+  id     String @id @default(uuid())
+  day    String
+  amount BigInt
+}
+
+// Bảng CurrentUser (Người dùng đang đăng nhập)
+model CurrentUser {
+  id       String @id @default("admin-001")
+  name     String
+  role     String
+  avatar   String
+  greeting String
+}
