@@ -1,11 +1,18 @@
-import type { Request, Response } from "express";
-import { prisma } from "../config/database.js";
+import type { Context } from "hono";
+import type { Env } from "../types/env.js";
+import { getSupabase } from "../config/database.js";
+import { serialize } from "../lib/serializer.js";
 
-export const getServices = async (req: Request, res: Response) => {
+export const getServices = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const services = await prisma.service.findMany();
-    return res.json(services);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb
+      .from("Service")
+      .select("*")
+      .order("name", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };

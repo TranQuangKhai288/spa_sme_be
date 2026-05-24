@@ -1,22 +1,26 @@
-import type { Request, Response } from "express";
-import { prisma } from "../config/database.js";
+import type { Context } from "hono";
+import type { Env } from "../types/env.js";
+import { getSupabase } from "../config/database.js";
+import { serialize } from "../lib/serializer.js";
 
-export const getAppointments = async (req: Request, res: Response) => {
+export const getAppointments = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const appointments = await prisma.appointment.findMany({
-      orderBy: [
-        { date: "desc" },
-        { startTime: "asc" }
-      ],
-    });
-    return res.json(appointments);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb
+      .from("Appointment")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("startTime", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const createAppointment = async (req: Request, res: Response) => {
+export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
   try {
+    const sb = getSupabase(c.env);
     const {
       clientId,
       therapistId,
@@ -27,34 +31,37 @@ export const createAppointment = async (req: Request, res: Response) => {
       date,
       price,
       notes,
-    } = req.body;
+    } = await c.req.json();
 
     if (!clientId || !therapistId || !startTime || !date) {
-      return res.status(400).json({ error: "Thiếu thông tin đặt lịch bắt buộc (Mã KH, Mã KTV, Ngày hẹn, Giờ bắt đầu)" });
+      return c.json(
+        {
+          error: "Thiếu thông tin đặt lịch bắt buộc (Mã KH, Mã KTV, Ngày hẹn, Giờ bắt đầu)",
+        },
+        400
+      );
     }
 
-    // Verify Client exists
-    const dbClient = await prisma.client.findUnique({
-      where: { id: clientId }
-    });
-    if (!dbClient) {
-      return res.status(404).json({ error: "Khách hàng không tồn tại" });
-    }
+    // Fetch client and therapist concurrently
+    const [clientRes, therapistRes] = await Promise.all([
+      sb.from("Client").select("id, name, tier, avatar").eq("id", clientId).single(),
+      sb.from("Therapist").select("id, name").eq("id", therapistId).single(),
+    ]);
 
-    // Verify Therapist exists
-    const dbTherapist = await prisma.therapist.findUnique({
-      where: { id: therapistId }
-    });
-    if (!dbTherapist) {
-      return res.status(404).json({ error: "Nhân viên không tồn tại" });
-    }
+    if (clientRes.error || !clientRes.data)
+      return c.json({ error: "Khách hàng không tồn tại" }, 404);
+    if (therapistRes.error || !therapistRes.data)
+      return c.json({ error: "Nhân viên không tồn tại" }, 404);
 
-    const apptPrice = BigInt(price || 0);
+    const dbClient = clientRes.data;
+    const dbTherapist = therapistRes.data;
+    const apptPrice = Number(price || 0);
 
-    // Create appointment and update client total visits / spend / points in a transaction
-    const [appointment] = await prisma.$transaction([
-      prisma.appointment.create({
-        data: {
+    // Create appointment, update client stats, create notification in parallel
+    const [apptRes, , ,] = await Promise.all([
+      sb
+        .from("Appointment")
+        .insert({
           clientId,
           clientName: dbClient.name,
           clientTier: dbClient.tier,
@@ -70,39 +77,35 @@ export const createAppointment = async (req: Request, res: Response) => {
           statusLabel: "Đã xác nhận",
           price: apptPrice,
           notes: notes || null,
-        },
+        })
+        .select()
+        .single(),
+      sb.rpc("increment_client_stats", {
+        p_client_id: clientId,
+        p_price: apptPrice,
+        p_date: date,
       }),
-      prisma.client.update({
-        where: { id: clientId },
-        data: {
-          totalVisits: { increment: 1 },
-          totalSpent: { increment: apptPrice },
-          memberPoints: { increment: Math.floor(Number(apptPrice) / 10000) },
-          lastVisit: date,
-        }
+      sb.from("Notification").insert({
+        type: "success",
+        title: "Đã tạo lịch hẹn mới",
+        message: `${dbClient.name} đã đặt lịch lúc ${startTime}`,
+        time: "Vừa xong",
+        read: false,
+        priority: "normal",
       }),
-      // Create system notification
-      prisma.notification.create({
-        data: {
-          type: "success",
-          title: "Đã tạo lịch hẹn mới",
-          message: `${dbClient.name} đã đặt lịch lúc ${startTime}`,
-          time: "Vừa xong",
-          read: false,
-          priority: "normal",
-        }
-      })
     ]);
 
-    return res.status(201).json(appointment);
+    if (apptRes.error) return c.json({ error: apptRes.error.message }, 500);
+    return c.json(serialize(apptRes.data), 201);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const updateAppointment = async (req: Request, res: Response) => {
+export const updateAppointment = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
     const {
       service,
       serviceIcon,
@@ -113,19 +116,12 @@ export const updateAppointment = async (req: Request, res: Response) => {
       therapistId,
       notes,
       status,
-    } = req.body;
+    } = await c.req.json();
 
-    const dbAppt = await prisma.appointment.findUnique({
-      where: { id }
-    });
-    if (!dbAppt) {
-      return res.status(404).json({ error: "Lịch hẹn không tồn tại" });
-    }
-
-    const updateData: any = {};
+    const updateData: Record<string, unknown> = {};
     if (service !== undefined) updateData.service = service;
     if (serviceIcon !== undefined) updateData.serviceIcon = serviceIcon;
-    if (price !== undefined) updateData.price = BigInt(price || 0);
+    if (price !== undefined) updateData.price = Number(price || 0);
     if (date !== undefined) updateData.date = date;
     if (startTime !== undefined) updateData.startTime = startTime;
     if (endTime !== undefined) updateData.endTime = endTime;
@@ -143,35 +139,37 @@ export const updateAppointment = async (req: Request, res: Response) => {
     }
 
     if (therapistId) {
-      const dbTherapist = await prisma.therapist.findUnique({
-        where: { id: therapistId }
-      });
-      if (!dbTherapist) {
-        return res.status(404).json({ error: "Nhân viên không tồn tại" });
-      }
+      const { data: th, error: thErr } = await sb
+        .from("Therapist")
+        .select("id, name")
+        .eq("id", therapistId)
+        .single();
+      if (thErr || !th) return c.json({ error: "Nhân viên không tồn tại" }, 404);
       updateData.therapistId = therapistId;
-      updateData.therapist = dbTherapist.name;
+      updateData.therapist = th.name;
     }
 
-    const updated = await prisma.appointment.update({
-      where: { id },
-      data: updateData,
-    });
+    const { data, error } = await sb
+      .from("Appointment")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
 
-    return res.json(updated);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const updateAppointmentStatus = async (req: Request, res: Response) => {
+export const updateAppointmentStatus = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { status } = await c.req.json();
 
-    if (!status) {
-      return res.status(400).json({ error: "Trạng thái là bắt buộc" });
-    }
+    if (!status) return c.json({ error: "Trạng thái là bắt buộc" }, 400);
 
     const labels: Record<string, string> = {
       in_progress: "Đang xử lý",
@@ -180,30 +178,28 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
       confirmed: "Đã xác nhận",
     };
 
-    const statusLabel = labels[status] || "Đã xác nhận";
+    const { data, error } = await sb
+      .from("Appointment")
+      .update({ status, statusLabel: labels[status] || "Đã xác nhận" })
+      .eq("id", id)
+      .select()
+      .single();
 
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: {
-        status,
-        statusLabel,
-      },
-    });
-
-    return res.json(appointment);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const deleteAppointment = async (req: Request, res: Response) => {
+export const deleteAppointment = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-    await prisma.appointment.delete({
-      where: { id },
-    });
-    return res.json({ success: true, message: "Đã xóa lịch hẹn" });
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { error } = await sb.from("Appointment").delete().eq("id", id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, message: "Đã xóa lịch hẹn" });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };

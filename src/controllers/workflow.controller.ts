@@ -1,63 +1,84 @@
-import type { Request, Response } from "express";
-import { prisma } from "../config/database.js";
+import type { Context } from "hono";
+import type { Env } from "../types/env.js";
+import { getSupabase } from "../config/database.js";
+import { serialize } from "../lib/serializer.js";
 
-export const getWorkflows = async (req: Request, res: Response) => {
+export const getWorkflows = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const workflows = await prisma.workflow.findMany();
-    return res.json(workflows);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb.from("Workflow").select("*");
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const toggleWorkflow = async (req: Request, res: Response) => {
+export const toggleWorkflow = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-    const workflow = await prisma.workflow.findUnique({ where: { id } });
-    if (!workflow) {
-      return res.status(404).json({ error: "Workflow không tồn tại" });
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+
+    const { data: workflow, error: fetchError } = await sb
+      .from("Workflow")
+      .select("id, active")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !workflow) {
+      return c.json({ error: "Workflow không tồn tại" }, 404);
     }
 
-    const updated = await prisma.workflow.update({
-      where: { id },
-      data: {
-        active: !workflow.active,
-      },
-    });
-    return res.json(updated);
+    const { data, error } = await sb
+      .from("Workflow")
+      .update({ active: !workflow.active })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const getNotifications = async (req: Request, res: Response) => {
+export const getNotifications = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const notifications = await prisma.notification.findMany({
-      orderBy: { id: "desc" }, // newest first
-    });
-    return res.json(notifications);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb
+      .from("Notification")
+      .select("*")
+      .order("id", { ascending: false });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const markAllNotificationsAsRead = async (req: Request, res: Response) => {
+export const markAllNotificationsAsRead = async (c: Context<{ Bindings: Env }>) => {
   try {
-    await prisma.notification.updateMany({
-      data: { read: true },
-    });
-    return res.json({ success: true, message: "Đã đánh dấu đọc tất cả thông báo" });
+    const sb = getSupabase(c.env);
+    const { error } = await sb
+      .from("Notification")
+      .update({ read: true })
+      .eq("read", false);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, message: "Đã đánh dấu đọc tất cả thông báo" });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const deleteNotification = async (req: Request, res: Response) => {
+export const deleteNotification = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-    await prisma.notification.delete({ where: { id } });
-    return res.json({ success: true, message: "Đã xóa thông báo" });
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { error } = await sb.from("Notification").delete().eq("id", id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, message: "Đã xóa thông báo" });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };

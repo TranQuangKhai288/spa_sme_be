@@ -1,0 +1,10 @@
+# pnpm v11 settings — https://pnpm.io/settings
+# Replaces the old onlyBuiltDependencies field
+
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  "esbuild": true
+  "prisma": true
+  "sharp": true
+  "workerd": true

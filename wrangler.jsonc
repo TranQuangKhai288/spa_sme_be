@@ -1,0 +1,20 @@
+{
+  // ZenFlow Spa — Cloudflare Workers deployment config
+  // Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+  "name": "zenflow-spa-be",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+
+  // ──────────────────────────────────────────────
+  // Environment Variables (non-secret)
+  // Secrets (DATABASE_URL) must be set via:
+  //   wrangler secret put DATABASE_URL
+  // ──────────────────────────────────────────────
+  "vars": {
+    // Add non-secret env vars here, e.g.:
+    // "ENVIRONMENT": "production"
+  }
+}

@@ -1,55 +1,53 @@
-import type { Request, Response } from "express";
-import { prisma } from "../config/database.js";
+import type { Context } from "hono";
+import type { Env } from "../types/env.js";
+import { getSupabase } from "../config/database.js";
+import { serialize } from "../lib/serializer.js";
 
-export const getClients = async (req: Request, res: Response) => {
+export const getClients = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const clients = await prisma.client.findMany({
-      orderBy: { name: "asc" },
-    });
-    return res.json(clients);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb
+      .from("Client")
+      .select("*")
+      .order("name", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const createClient = async (req: Request, res: Response) => {
+export const createClient = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { name, avatar, tier, phone, email, notes } = req.body;
+    const sb = getSupabase(c.env);
+    const body = await c.req.json();
+    const { name, avatar, tier, phone, email, notes } = body;
 
     if (!name || !phone) {
-      return res.status(400).json({ error: "Tên và Số điện thoại là bắt buộc" });
+      return c.json({ error: "Tên và số điện thoại là bắt buộc" }, 400);
     }
 
-    const client = await prisma.client.create({
-      data: {
+    const { data, error } = await sb
+      .from("Client")
+      .insert({
         name,
-        avatar: avatar || `https://i.pravatar.cc/150?u=${phone}`,
-        tier: tier || "Mới",
+        avatar: avatar || "",
+        tier: tier || "Thành Viên",
         phone,
         email: email || "",
         totalVisits: 0,
-        totalSpent: 0n,
+        totalSpent: 0,
         memberPoints: 0,
-        lastVisit: "Chưa có",
-        joinDate: new Date().toLocaleDateString("vi-VN"),
-        notes: notes || "",
-      },
-    });
+        lastVisit: new Date().toISOString().split("T")[0],
+        joinDate: new Date().toISOString().split("T")[0],
+        notes: notes || null,
+      })
+      .select()
+      .single();
 
-    // Create a system notification
-    await prisma.notification.create({
-      data: {
-        type: "info",
-        title: "Khách hàng mới đăng ký",
-        message: `${name} đã được thêm vào hệ thống quản lý.`,
-        time: "Vừa xong",
-        read: false,
-        priority: "normal",
-      },
-    });
-
-    return res.status(201).json(client);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data), 201);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };

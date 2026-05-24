@@ -1,94 +1,93 @@
-import type { Request, Response } from "express";
-import { prisma } from "../config/database.js";
+import type { Context } from "hono";
+import type { Env } from "../types/env.js";
+import { getSupabase } from "../config/database.js";
+import { serialize } from "../lib/serializer.js";
 
-export const getTherapists = async (req: Request, res: Response) => {
+export const getTherapists = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const therapists = await prisma.therapist.findMany({
-      orderBy: { name: "asc" }
-    });
-    return res.json(therapists);
+    const sb = getSupabase(c.env);
+    const { data, error } = await sb
+      .from("Therapist")
+      .select("*")
+      .order("name", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const createTherapist = async (req: Request, res: Response) => {
+export const createTherapist = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { name, avatar, specialty, experience, bio, services } = req.body;
+    const sb = getSupabase(c.env);
+    const body = await c.req.json();
+    const { name, avatar, specialty, experience, bio, services } = body;
 
     if (!name || !specialty) {
-      return res.status(400).json({ error: "Tên và Chuyên môn KTV là bắt buộc" });
+      return c.json({ error: "Tên và chuyên môn là bắt buộc" }, 400);
     }
 
-    const therapist = await prisma.therapist.create({
-      data: {
+    const { data, error } = await sb
+      .from("Therapist")
+      .insert({
         name,
-        avatar: avatar || `https://i.pravatar.cc/150?u=${encodeURIComponent(name)}`,
+        avatar: avatar || "",
         specialty,
-        experience: experience || "1 năm",
+        experience: experience || "0 năm",
         rating: 5.0,
         totalReviews: 0,
         availability: "available",
         bio: bio || "",
         services: services || [],
-      },
-    });
+      })
+      .select()
+      .single();
 
-    return res.status(201).json(therapist);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data), 201);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const updateTherapist = async (req: Request, res: Response) => {
+export const updateTherapist = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-    const { name, avatar, specialty, experience, availability, bio, services } = req.body;
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { name, avatar, specialty, experience, bio, services, availability } = body;
 
-    const dbTherapist = await prisma.therapist.findUnique({
-      where: { id }
-    });
-    if (!dbTherapist) {
-      return res.status(404).json({ error: "Nhân viên không tồn tại" });
-    }
+    const updateData: Record<string, unknown> = {};
+    if (name !== undefined) updateData.name = name;
+    if (avatar !== undefined) updateData.avatar = avatar;
+    if (specialty !== undefined) updateData.specialty = specialty;
+    if (experience !== undefined) updateData.experience = experience;
+    if (bio !== undefined) updateData.bio = bio;
+    if (services !== undefined) updateData.services = services;
+    if (availability !== undefined) updateData.availability = availability;
 
-    const therapist = await prisma.therapist.update({
-      where: { id },
-      data: {
-        name: name !== undefined ? name : undefined,
-        avatar: avatar !== undefined ? avatar : undefined,
-        specialty: specialty !== undefined ? specialty : undefined,
-        experience: experience !== undefined ? experience : undefined,
-        availability: availability !== undefined ? availability : undefined,
-        bio: bio !== undefined ? bio : undefined,
-        services: services !== undefined ? services : undefined,
-      },
-    });
+    const { data, error } = await sb
+      .from("Therapist")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
 
-    return res.json(therapist);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
 
-export const deleteTherapist = async (req: Request, res: Response) => {
+export const deleteTherapist = async (c: Context<{ Bindings: Env }>) => {
   try {
-    const { id } = req.params;
-
-    // Check if therapist exists
-    const dbTherapist = await prisma.therapist.findUnique({
-      where: { id }
-    });
-    if (!dbTherapist) {
-      return res.status(404).json({ error: "Nhân viên không tồn tại" });
-    }
-
-    await prisma.therapist.delete({
-      where: { id }
-    });
-
-    return res.json({ success: true, message: "Đã xóa Nhân viên thành công" });
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { error } = await sb.from("Therapist").delete().eq("id", id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, message: "Đã xóa nhân viên" });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    return c.json({ error: error.message }, 500);
   }
 };
