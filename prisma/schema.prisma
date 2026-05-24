@@ -38,7 +38,7 @@ model Client {
   appointments Appointment[]
 }
 
-// Bảng Therapist (Kỹ thuật viên)
+// Bảng Therapist (Nhân viên)
 model Therapist {
   id           String        @id @default(uuid())
   name         String
@@ -76,8 +76,9 @@ model Appointment {
   clientName   String
   clientTier   String
   clientAvatar String
-  notes        String
-  servicesUsed String[]
+  notes        String?
+  service      String?
+  serviceIcon  String?
   therapist    String
   therapistId  String
   therapistRel Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade)
@@ -86,9 +87,7 @@ model Appointment {
   date         String
   status       String
   statusLabel  String
-  expectedPrice BigInt    @default(0)
-  finalRevenue  BigInt    @default(0)
-  history       Json      @default("[]")
+  price        BigInt    @default(0)
 }
 
 // Bảng TreatmentProgress (Tiến độ liệu trình)

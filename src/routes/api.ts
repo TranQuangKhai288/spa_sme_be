@@ -10,11 +10,17 @@ import {
 } from "../controllers/client.controller.js";
 import {
   getServices,
-  getTherapists,
 } from "../controllers/service.controller.js";
+import {
+  getTherapists,
+  createTherapist,
+  updateTherapist,
+  deleteTherapist,
+} from "../controllers/therapist.controller.js";
 import {
   getAppointments,
   createAppointment,
+  updateAppointment,
   updateAppointmentStatus,
   deleteAppointment,
 } from "../controllers/appointment.controller.js";
@@ -40,10 +46,14 @@ router.post("/clients", createClient);
 // Services & Therapists
 router.get("/services", getServices);
 router.get("/therapists", getTherapists);
+router.post("/therapists", createTherapist);
+router.put("/therapists/:id", updateTherapist);
+router.delete("/therapists/:id", deleteTherapist);
 
 // Appointments
 router.get("/appointments", getAppointments);
 router.post("/appointments", createAppointment);
+router.put("/appointments/:id", updateAppointment);
 router.put("/appointments/:id/status", updateAppointmentStatus);
 router.delete("/appointments/:id", deleteAppointment);
 

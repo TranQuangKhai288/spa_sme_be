@@ -19,21 +19,18 @@ export const createAppointment = async (req: Request, res: Response) => {
   try {
     const {
       clientId,
-      clientName,
-      clientTier,
-      clientAvatar,
+      therapistId,
       service,
       serviceIcon,
-      therapist,
-      therapistId,
       startTime,
       endTime,
       date,
       price,
+      notes,
     } = req.body;
 
-    if (!clientId || !therapistId || !service || !startTime || !date) {
-      return res.status(400).json({ error: "Thiếu thông tin đặt lịch bắt buộc" });
+    if (!clientId || !therapistId || !startTime || !date) {
+      return res.status(400).json({ error: "Thiếu thông tin đặt lịch bắt buộc (Mã KH, Mã KTV, Ngày hẹn, Giờ bắt đầu)" });
     }
 
     // Verify Client exists
@@ -49,7 +46,7 @@ export const createAppointment = async (req: Request, res: Response) => {
       where: { id: therapistId }
     });
     if (!dbTherapist) {
-      return res.status(404).json({ error: "Kỹ thuật viên không tồn tại" });
+      return res.status(404).json({ error: "Nhân viên không tồn tại" });
     }
 
     const apptPrice = BigInt(price || 0);
@@ -62,8 +59,8 @@ export const createAppointment = async (req: Request, res: Response) => {
           clientName: dbClient.name,
           clientTier: dbClient.tier,
           clientAvatar: dbClient.avatar,
-          service,
-          serviceIcon: serviceIcon || "spa",
+          service: service || null,
+          serviceIcon: serviceIcon || null,
           therapist: dbTherapist.name,
           therapistId,
           startTime,
@@ -72,6 +69,7 @@ export const createAppointment = async (req: Request, res: Response) => {
           status: "confirmed",
           statusLabel: "Đã xác nhận",
           price: apptPrice,
+          notes: notes || null,
         },
       }),
       prisma.client.update({
@@ -88,7 +86,7 @@ export const createAppointment = async (req: Request, res: Response) => {
         data: {
           type: "success",
           title: "Đã tạo lịch hẹn mới",
-          message: `${dbClient.name} đã đặt lịch ${service} lúc ${startTime}`,
+          message: `${dbClient.name} đã đặt lịch lúc ${startTime}`,
           time: "Vừa xong",
           read: false,
           priority: "normal",
@@ -97,6 +95,70 @@ export const createAppointment = async (req: Request, res: Response) => {
     ]);
 
     return res.status(201).json(appointment);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateAppointment = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      service,
+      serviceIcon,
+      price,
+      date,
+      startTime,
+      endTime,
+      therapistId,
+      notes,
+      status,
+    } = req.body;
+
+    const dbAppt = await prisma.appointment.findUnique({
+      where: { id }
+    });
+    if (!dbAppt) {
+      return res.status(404).json({ error: "Lịch hẹn không tồn tại" });
+    }
+
+    const updateData: any = {};
+    if (service !== undefined) updateData.service = service;
+    if (serviceIcon !== undefined) updateData.serviceIcon = serviceIcon;
+    if (price !== undefined) updateData.price = BigInt(price || 0);
+    if (date !== undefined) updateData.date = date;
+    if (startTime !== undefined) updateData.startTime = startTime;
+    if (endTime !== undefined) updateData.endTime = endTime;
+    if (notes !== undefined) updateData.notes = notes;
+
+    if (status !== undefined) {
+      updateData.status = status;
+      const labels: Record<string, string> = {
+        in_progress: "Đang xử lý",
+        completed: "Hoàn tất",
+        cancelled: "Đã hủy",
+        confirmed: "Đã xác nhận",
+      };
+      updateData.statusLabel = labels[status] || "Đã xác nhận";
+    }
+
+    if (therapistId) {
+      const dbTherapist = await prisma.therapist.findUnique({
+        where: { id: therapistId }
+      });
+      if (!dbTherapist) {
+        return res.status(404).json({ error: "Nhân viên không tồn tại" });
+      }
+      updateData.therapistId = therapistId;
+      updateData.therapist = dbTherapist.name;
+    }
+
+    const updated = await prisma.appointment.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return res.json(updated);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

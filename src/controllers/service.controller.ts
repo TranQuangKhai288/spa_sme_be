@@ -9,12 +9,3 @@ export const getServices = async (req: Request, res: Response) => {
     return res.status(500).json({ error: error.message });
   }
 };
-
-export const getTherapists = async (req: Request, res: Response) => {
-  try {
-    const therapists = await prisma.therapist.findMany();
-    return res.json(therapists);
-  } catch (error: any) {
-    return res.status(500).json({ error: error.message });
-  }
-};
