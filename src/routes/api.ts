@@ -9,6 +9,8 @@ import {
 import {
   getClients,
   createClient,
+  updateClient,
+  deleteClient,
 } from "../controllers/client.controller.js";
 import { getServices } from "../controllers/service.controller.js";
 import {
@@ -75,6 +77,8 @@ router.put("/current-user", updateCurrentUser);
 // ── Clients ──────────────────────────────────────────────────────────────────
 router.get("/clients", getClients);
 router.post("/clients", createClient);
+router.put("/clients/:id", updateClient);
+router.delete("/clients/:id", deleteClient);
 
 // ── Services & Therapists ────────────────────────────────────────────────────
 router.get("/services", getServices);

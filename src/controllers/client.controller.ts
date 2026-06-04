@@ -30,6 +30,7 @@ export const createClient = async (c: Context<{ Bindings: Env }>) => {
     const { data, error } = await sb
       .from("Client")
       .insert({
+        id: crypto.randomUUID(),
         name,
         avatar: avatar || "",
         tier: tier || "Thành Viên",
@@ -51,3 +52,50 @@ export const createClient = async (c: Context<{ Bindings: Env }>) => {
     return c.json({ error: error.message }, 500);
   }
 };
+
+export const updateClient = async (c: Context<{ Bindings: Env }>) => {
+  try {
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    const { name, avatar, tier, phone, email, notes, totalVisits, totalSpent, memberPoints, lastVisit, joinDate } = body;
+
+    const updateData: Record<string, any> = {};
+    if (name !== undefined) updateData.name = name;
+    if (avatar !== undefined) updateData.avatar = avatar;
+    if (tier !== undefined) updateData.tier = tier;
+    if (phone !== undefined) updateData.phone = phone;
+    if (email !== undefined) updateData.email = email;
+    if (notes !== undefined) updateData.notes = notes;
+    if (totalVisits !== undefined) updateData.totalVisits = totalVisits;
+    if (totalSpent !== undefined) updateData.totalSpent = totalSpent;
+    if (memberPoints !== undefined) updateData.memberPoints = memberPoints;
+    if (lastVisit !== undefined) updateData.lastVisit = lastVisit;
+    if (joinDate !== undefined) updateData.joinDate = joinDate;
+
+    const { data, error } = await sb
+      .from("Client")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(serialize(data));
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+};
+
+export const deleteClient = async (c: Context<{ Bindings: Env }>) => {
+  try {
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { error } = await sb.from("Client").delete().eq("id", id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, message: "Đã xóa khách hàng" });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+};
+

@@ -94,6 +94,7 @@ export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
       sb
         .from("Appointment")
         .insert({
+          id: crypto.randomUUID(),
           clientId,
           clientName: dbClient.name,
           clientTier: dbClient.tier,
