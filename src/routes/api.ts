@@ -34,6 +34,11 @@ import {
   deleteNotification,
 } from "../controllers/workflow.controller.js";
 import { updateCurrentUser } from "../controllers/user.controller.js";
+import {
+  createBooking,
+  getBookings,
+  updateBookingStatus,
+} from "../controllers/booking.controller.js";
 
 const router = new Hono<{ Bindings: Env }>();
 
@@ -102,5 +107,10 @@ router.put("/workflows/:id/toggle", checkAdmin, toggleWorkflow);
 router.get("/notifications", getNotifications);
 router.post("/notifications/read-all", markAllNotificationsAsRead);
 router.delete("/notifications/:id", deleteNotification);
+
+// ── Bookings (Public & Admin) ────────────────────────────────────────────────
+router.post("/bookings", createBooking); // Public
+router.get("/bookings", getBookings);    // Admin/Staff only (could add checkNotTechnician if needed)
+router.put("/bookings/:id/status", updateBookingStatus); // Admin/Staff only
 
 export default router;

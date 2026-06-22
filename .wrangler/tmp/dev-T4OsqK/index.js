@@ -24509,7 +24509,8 @@ var createAppointment = /* @__PURE__ */ __name(async (c) => {
       endTime,
       date,
       price,
-      notes
+      notes,
+      reminderTime
     } = await c.req.json();
     if (!clientId || !therapistId || !startTime || !date) {
       return c.json(
@@ -24570,7 +24571,8 @@ var createAppointment = /* @__PURE__ */ __name(async (c) => {
         status: "confirmed",
         statusLabel: "\u0110\xE3 x\xE1c nh\u1EADn",
         price: apptPrice,
-        notes: notes || null
+        notes: notes || null,
+        reminderTime: reminderTime !== void 0 ? reminderTime : 1440
       }).select().single(),
       sb.rpc("increment_client_stats", {
         p_client_id: clientId,
@@ -24605,7 +24607,8 @@ var updateAppointment = /* @__PURE__ */ __name(async (c) => {
       endTime,
       therapistId,
       notes,
-      status
+      status,
+      reminderTime
     } = await c.req.json();
     const { data: currentApt, error: fetchErr } = await sb.from("Appointment").select("*").eq("id", id).single();
     if (fetchErr || !currentApt) {
@@ -24665,6 +24668,7 @@ var updateAppointment = /* @__PURE__ */ __name(async (c) => {
     if (startTime !== void 0) updateData.startTime = startTime;
     if (endTime !== void 0) updateData.endTime = endTime;
     if (notes !== void 0) updateData.notes = notes;
+    if (reminderTime !== void 0) updateData.reminderTime = reminderTime;
     if (status !== void 0) {
       updateData.status = status;
       const labels = {
@@ -24818,6 +24822,109 @@ var updateCurrentUser = /* @__PURE__ */ __name(async (c) => {
   }
 }, "updateCurrentUser");
 
+// src/controllers/booking.controller.ts
+async function triggerPusherEvent(env2, channel2, event, data) {
+  if (!env2.PUSHER_APP_ID || !env2.PUSHER_KEY || !env2.PUSHER_SECRET || !env2.PUSHER_CLUSTER) {
+    console.warn("Pusher environment variables are missing. Skipping real-time notification.");
+    return;
+  }
+  const eventDataString = JSON.stringify(data);
+  const postBodyObject = { name: event, channels: [channel2], data: eventDataString };
+  const postBodyString = JSON.stringify(postBodyObject);
+  const md5Hash = await crypto.subtle.digest("MD5", new TextEncoder().encode(postBodyString));
+  const bodyMd5 = Array.from(new Uint8Array(md5Hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const timestamp = Math.floor(Date.now() / 1e3);
+  const method = "POST";
+  const path = `/apps/${env2.PUSHER_APP_ID}/events`;
+  const query = `auth_key=${env2.PUSHER_KEY}&auth_timestamp=${timestamp}&auth_version=1.0&body_md5=${bodyMd5}`;
+  const stringToSign = `${method}
+${path}
+${query}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env2.PUSHER_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(stringToSign));
+  const signature = Array.from(new Uint8Array(signatureBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const url = `https://api-${env2.PUSHER_CLUSTER}.pusher.com${path}?${query}&auth_signature=${signature}`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: postBodyString
+    });
+    if (!res.ok) {
+      console.error("Pusher trigger failed:", await res.text());
+    }
+  } catch (error3) {
+    console.error("Error sending Pusher event:", error3);
+  }
+}
+__name(triggerPusherEvent, "triggerPusherEvent");
+var createBooking = /* @__PURE__ */ __name(async (c) => {
+  try {
+    const sb = getSupabase(c.env);
+    const body = await c.req.json();
+    const { guestName, guestPhone, serviceRequested, preferredDate, preferredTime, notes } = body;
+    if (!guestName || !guestPhone || !preferredDate || !preferredTime) {
+      return c.json({ error: "Vui l\xF2ng nh\u1EADp \u0111\u1EA7y \u0111\u1EE7 H\u1ECD t\xEAn, S\u1ED1 \u0111i\u1EC7n tho\u1EA1i, Ng\xE0y v\xE0 Gi\u1EDD." }, 400);
+    }
+    const { data: booking, error: error3 } = await sb.from("Booking").insert({
+      guestName,
+      guestPhone,
+      serviceRequested: serviceRequested || "T\u01B0 v\u1EA5n",
+      preferredDate,
+      preferredTime,
+      notes: notes || "",
+      status: "pending"
+    }).select().single();
+    if (error3) {
+      console.error("L\u1ED7i khi t\u1EA1o booking:", error3);
+      return c.json({ error: error3.message || JSON.stringify(error3) }, 500);
+    }
+    c.executionCtx.waitUntil(
+      triggerPusherEvent(c.env, "spa-channel", "new-booking", booking)
+    );
+    return c.json({ success: true, booking: serialize(booking) }, 201);
+  } catch (error3) {
+    return c.json({ error: error3.message }, 500);
+  }
+}, "createBooking");
+var getBookings = /* @__PURE__ */ __name(async (c) => {
+  try {
+    const sb = getSupabase(c.env);
+    const url = new URL(c.req.url);
+    const status = url.searchParams.get("status");
+    let query = sb.from("Booking").select("*").order("createdAt", { ascending: false });
+    if (status) {
+      query = query.eq("status", status);
+    }
+    const { data, error: error3 } = await query;
+    if (error3) return c.json({ error: error3.message }, 500);
+    return c.json(serialize(data));
+  } catch (error3) {
+    return c.json({ error: error3.message }, 500);
+  }
+}, "getBookings");
+var updateBookingStatus = /* @__PURE__ */ __name(async (c) => {
+  try {
+    const sb = getSupabase(c.env);
+    const id = c.req.param("id");
+    const { status } = await c.req.json();
+    if (!["confirmed", "rejected"].includes(status)) {
+      return c.json({ error: "Tr\u1EA1ng th\xE1i kh\xF4ng h\u1EE3p l\u1EC7. Ph\u1EA3i l\xE0 'confirmed' ho\u1EB7c 'rejected'." }, 400);
+    }
+    const { data, error: error3 } = await sb.from("Booking").update({ status }).eq("id", id).select().single();
+    if (error3) return c.json({ error: error3.message }, 500);
+    return c.json(serialize(data));
+  } catch (error3) {
+    return c.json({ error: error3.message }, 500);
+  }
+}, "updateBookingStatus");
+
 // src/routes/api.ts
 var router = new Hono2();
 var checkAdmin = /* @__PURE__ */ __name(async (c, next) => {
@@ -24869,7 +24976,91 @@ router.put("/workflows/:id/toggle", checkAdmin, toggleWorkflow);
 router.get("/notifications", getNotifications);
 router.post("/notifications/read-all", markAllNotificationsAsRead);
 router.delete("/notifications/:id", deleteNotification);
+router.post("/bookings", createBooking);
+router.get("/bookings", getBookings);
+router.put("/bookings/:id/status", updateBookingStatus);
 var api_default = router;
+
+// src/services/reminder.service.ts
+async function processReminders(env2) {
+  console.log("[CRON] B\u1EAFt \u0111\u1EA7u qu\xE9t l\u1ECBch h\u1EB9n c\u1EA7n nh\u1EAFc...");
+  const sb = getSupabase(env2);
+  const now = /* @__PURE__ */ new Date();
+  const today = now.toISOString().split("T")[0];
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1e3).toISOString().split("T")[0];
+  const { data: appointments, error: error3 } = await sb.from("Appointment").select("*, Client(phone)").eq("status", "confirmed").eq("reminderSent", false).in("date", [today, tomorrow]);
+  if (error3) {
+    console.error("[CRON] L\u1ED7i truy v\u1EA5n l\u1ECBch h\u1EB9n:", error3);
+    return;
+  }
+  if (!appointments || appointments.length === 0) {
+    console.log("[CRON] Kh\xF4ng c\xF3 l\u1ECBch h\u1EB9n n\xE0o c\u1EA7n x\u1EED l\xFD.");
+    return;
+  }
+  const notificationsToInsert = [];
+  const appointmentsToUpdate = [];
+  for (const appt of appointments) {
+    const apptDate = /* @__PURE__ */ new Date(`${appt.date}T${appt.startTime}:00`);
+    const timeDiffMs = apptDate.getTime() - now.getTime();
+    const timeDiffMinutes = Math.floor(timeDiffMs / 6e4);
+    const reminderTimeMinutes = appt.reminderTime ?? 1440;
+    if (timeDiffMinutes > 0 && timeDiffMinutes <= reminderTimeMinutes) {
+      console.log(`[CRON] \u0110\xE3 t\xECm th\u1EA5y l\u1ECBch h\u1EB9n c\u1EA7n nh\u1EAFc: ${appt.id} (c\xF2n ${timeDiffMinutes} ph\xFAt)`);
+      notificationsToInsert.push({
+        type: "warning",
+        // dùng màu cam/vàng cho nhắc lịch
+        title: "\u23F0 Nh\u1EAFc l\u1ECBch s\u1EAFp t\u1EDBi",
+        message: `L\u1ECBch h\u1EB9n v\u1EDBi kh\xE1ch h\xE0ng ${appt.clientName || "Kh\xE1ch h\xE0ng"} l\xFAc ${appt.startTime} ng\xE0y ${appt.date.split("-").reverse().join("/")} s\u1EAFp di\u1EC5n ra.`,
+        time: "V\u1EEBa xong",
+        read: false,
+        priority: "high"
+      });
+      appointmentsToUpdate.push(appt.id);
+      const clientPhone = appt.Client?.phone;
+      if (clientPhone && env2.SPEEDSMS_TOKEN) {
+        try {
+          const smsRes = await fetch("https://api.speedsms.vn/index.php/sms/send", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Basic " + btoa(env2.SPEEDSMS_TOKEN + ":x")
+            },
+            body: JSON.stringify({
+              to: clientPhone,
+              content: `Serenity Spa: Nhac lich hen cua quy khach ${appt.clientName} vao luc ${appt.startTime} ngay ${appt.date}. Vui long den dung gio.`,
+              sms_type: 2,
+              sender: "SerenitySpa"
+              // Hoặc số mặc định
+            })
+          });
+          const smsData = await smsRes.json();
+          console.log(`[CRON] \u0110\xE3 g\u1EEDi SMS cho ${clientPhone}:`, smsData);
+        } catch (smsErr) {
+          console.error(`[CRON] L\u1ED7i g\u1EEDi SMS cho ${clientPhone}:`, smsErr);
+        }
+      } else {
+        console.log(`[CRON] B\u1ECF qua g\u1EEDi SMS cho ${appt.clientName} v\xEC thi\u1EBFu S\u0110T ho\u1EB7c token.`);
+      }
+    }
+  }
+  if (notificationsToInsert.length > 0) {
+    const { error: notifError } = await sb.from("Notification").insert(notificationsToInsert);
+    if (notifError) {
+      console.error("[CRON] L\u1ED7i khi t\u1EA1o notifications:", notifError);
+    } else {
+      console.log(`[CRON] \u0110\xE3 t\u1EA1o ${notificationsToInsert.length} notifications.`);
+    }
+    const { error: updateError } = await sb.from("Appointment").update({ reminderSent: true }).in("id", appointmentsToUpdate);
+    if (updateError) {
+      console.error("[CRON] L\u1ED7i khi c\u1EADp nh\u1EADt tr\u1EA1ng th\xE1i reminderSent:", updateError);
+    } else {
+      console.log(`[CRON] \u0110\xE3 c\u1EADp nh\u1EADt tr\u1EA1ng th\xE1i reminderSent cho ${appointmentsToUpdate.length} l\u1ECBch h\u1EB9n.`);
+    }
+  } else {
+    console.log("[CRON] Ch\u01B0a \u0111\u1EBFn gi\u1EDD nh\u1EAFc cho c\xE1c l\u1ECBch h\u1EB9n s\u1EAFp t\u1EDBi.");
+  }
+}
+__name(processReminders, "processReminders");
 
 // src/index.ts
 var app = new Hono2();
@@ -24918,7 +25109,12 @@ app.onError((err, c) => {
   );
   return c.json({ error: "Internal Server Error" }, 500);
 });
-var src_default = app;
+var src_default = {
+  fetch: app.fetch,
+  scheduled: /* @__PURE__ */ __name(async (event, env2, ctx) => {
+    ctx.waitUntil(processReminders(env2));
+  }, "scheduled")
+};
 
 // node_modules/.pnpm/wrangler@4.94.0_@cloudflare+workers-types@4.20260523.1/node_modules/wrangler/templates/middleware/middleware-ensure-req-body-drained.ts
 var drainBody = /* @__PURE__ */ __name(async (request, env2, _ctx, middlewareCtx) => {
@@ -24961,7 +25157,7 @@ var jsonError = /* @__PURE__ */ __name(async (request, env2, _ctx, middlewareCtx
 }, "jsonError");
 var middleware_miniflare3_json_error_default = jsonError;
 
-// .wrangler/tmp/bundle-MeUJu3/middleware-insertion-facade.js
+// .wrangler/tmp/bundle-NKH7AS/middleware-insertion-facade.js
 var __INTERNAL_WRANGLER_MIDDLEWARE__ = [
   middleware_ensure_req_body_drained_default,
   middleware_miniflare3_json_error_default
@@ -24993,7 +25189,7 @@ function __facade_invoke__(request, env2, ctx, dispatch, finalMiddleware) {
 }
 __name(__facade_invoke__, "__facade_invoke__");
 
-// .wrangler/tmp/bundle-MeUJu3/middleware-loader.entry.ts
+// .wrangler/tmp/bundle-NKH7AS/middleware-loader.entry.ts
 var __Facade_ScheduledController__ = class ___Facade_ScheduledController__ {
   constructor(scheduledTime, cron, noRetry) {
     this.scheduledTime = scheduledTime;

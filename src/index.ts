@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./types/env.js";
 import apiRouter from "./routes/api.js";
+import { processReminders } from "./services/reminder.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -76,4 +77,9 @@ app.onError((err, c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Export as Cloudflare Workers handler
 // ─────────────────────────────────────────────────────────────────────────────
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
+    ctx.waitUntil(processReminders(env));
+  },
+};
