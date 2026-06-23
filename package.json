@@ -7,10 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "build": "wrangler deploy --dry-run",
-    "cf-typegen": "wrangler types",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",

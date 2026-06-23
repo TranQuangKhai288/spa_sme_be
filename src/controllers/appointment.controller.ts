@@ -31,7 +31,9 @@ export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
       date,
       price,
       notes,
+      reminderTime,
     } = await c.req.json();
+
 
     if (!clientId || !therapistId || !startTime || !date) {
       return c.json(
@@ -42,16 +44,48 @@ export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
       );
     }
 
-    // Fetch client and therapist concurrently
-    const [clientRes, therapistRes] = await Promise.all([
+    // Fetch client, therapist, and existing appointments concurrently
+    const [clientRes, therapistRes, existRes] = await Promise.all([
       sb.from("Client").select("id, name, tier, avatar").eq("id", clientId).single(),
       sb.from("Therapist").select("id, name").eq("id", therapistId).single(),
+      sb.from("Appointment")
+        .select("id, startTime, endTime, status, therapist")
+        .eq("therapistId", therapistId)
+        .eq("date", date)
+        .neq("status", "cancelled"),
     ]);
 
     if (clientRes.error || !clientRes.data)
       return c.json({ error: "Khách hàng không tồn tại" }, 404);
     if (therapistRes.error || !therapistRes.data)
       return c.json({ error: "Nhân viên không tồn tại" }, 404);
+
+    // Conflict detection
+    if (existRes.data && existRes.data.length > 0) {
+      const parseTimeToMinutes = (t: string) => {
+        if (!t) return 0;
+        const [h, m] = t.split(":").map(Number);
+        return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
+      };
+      
+      const newStart = parseTimeToMinutes(startTime);
+      const newEnd = parseTimeToMinutes(endTime || startTime);
+      
+      const conflict = existRes.data.find((apt) => {
+        const existStart = parseTimeToMinutes(apt.startTime);
+        const existEnd = parseTimeToMinutes(apt.endTime);
+        return !(newEnd <= existStart || newStart >= existEnd);
+      });
+
+      if (conflict) {
+        return c.json(
+          {
+            error: `Trùng lịch hẹn! Nhân viên ${therapistRes.data.name} đã có lịch từ ${conflict.startTime} đến ${conflict.endTime} trong ngày này.`,
+          },
+          400
+        );
+      }
+    }
 
     const dbClient = clientRes.data;
     const dbTherapist = therapistRes.data;
@@ -62,6 +96,7 @@ export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
       sb
         .from("Appointment")
         .insert({
+          id: crypto.randomUUID(),
           clientId,
           clientName: dbClient.name,
           clientTier: dbClient.tier,
@@ -77,8 +112,10 @@ export const createAppointment = async (c: Context<{ Bindings: Env }>) => {
           statusLabel: "Đã xác nhận",
           price: apptPrice,
           notes: notes || null,
+          reminderTime: reminderTime !== undefined ? reminderTime : 1440,
         })
         .select()
+
         .single(),
       sb.rpc("increment_client_stats", {
         p_client_id: clientId,
@@ -116,7 +153,91 @@ export const updateAppointment = async (c: Context<{ Bindings: Env }>) => {
       therapistId,
       notes,
       status,
+      reminderTime,
     } = await c.req.json();
+
+
+    // Fetch current appointment details
+    const { data: currentApt, error: fetchErr } = await sb
+      .from("Appointment")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !currentApt) {
+      return c.json({ error: "Lịch hẹn không tồn tại" }, 404);
+    }
+
+    // Fetch user role to restrict technician updates
+    const { data: user } = await sb.from("CurrentUser").select("role").single();
+    const userRole = user?.role;
+
+    if (userRole === "technician") {
+      const hasChanges =
+        (service !== undefined && service !== currentApt.service) ||
+        (price !== undefined && Number(price || 0) !== currentApt.price) ||
+        (date !== undefined && date !== currentApt.date) ||
+        (startTime !== undefined && startTime !== currentApt.startTime) ||
+        (endTime !== undefined && endTime !== currentApt.endTime) ||
+        (therapistId !== undefined && therapistId !== currentApt.therapistId) ||
+        (status !== undefined && status !== currentApt.status);
+
+      if (hasChanges) {
+        return c.json(
+          {
+            error: "Quyền truy cập bị từ chối. Kỹ thuật viên chỉ được phép cập nhật ghi chú trị liệu.",
+          },
+          403
+        );
+      }
+    }
+
+    const finalDate = date !== undefined ? date : currentApt.date;
+    const finalTherapistId = therapistId !== undefined ? therapistId : currentApt.therapistId;
+    const finalStartTime = startTime !== undefined ? startTime : currentApt.startTime;
+    const finalEndTime = endTime !== undefined ? endTime : currentApt.endTime;
+    const finalStatus = status !== undefined ? status : currentApt.status;
+
+    // Check for conflicts if the appointment is not being cancelled
+    if (finalStatus !== "cancelled") {
+      const { data: existAppts, error: checkError } = await sb
+        .from("Appointment")
+        .select("id, startTime, endTime, status, therapist")
+        .eq("therapistId", finalTherapistId)
+        .eq("date", finalDate)
+        .neq("status", "cancelled")
+        .neq("id", id);
+
+      if (checkError) {
+        return c.json({ error: checkError.message }, 500);
+      }
+
+      if (existAppts && existAppts.length > 0) {
+        const parseTimeToMinutes = (t: string) => {
+          if (!t) return 0;
+          const [h, m] = t.split(":").map(Number);
+          return (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
+        };
+
+        const newStart = parseTimeToMinutes(finalStartTime);
+        const newEnd = parseTimeToMinutes(finalEndTime || finalStartTime);
+
+        const conflict = existAppts.find((apt) => {
+          const existStart = parseTimeToMinutes(apt.startTime);
+          const existEnd = parseTimeToMinutes(apt.endTime);
+          return !(newEnd <= existStart || newStart >= existEnd);
+        });
+
+        if (conflict) {
+          return c.json(
+            {
+              error: `Trùng lịch hẹn! Nhân viên ${conflict.therapist || "KTV"} đã có lịch từ ${conflict.startTime} đến ${conflict.endTime} trong ngày này.`,
+            },
+            400
+          );
+        }
+      }
+    }
 
     const updateData: Record<string, unknown> = {};
     if (service !== undefined) updateData.service = service;
@@ -126,6 +247,8 @@ export const updateAppointment = async (c: Context<{ Bindings: Env }>) => {
     if (startTime !== undefined) updateData.startTime = startTime;
     if (endTime !== undefined) updateData.endTime = endTime;
     if (notes !== undefined) updateData.notes = notes;
+    if (reminderTime !== undefined) updateData.reminderTime = reminderTime;
+
 
     if (status !== undefined) {
       updateData.status = status;

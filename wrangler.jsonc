@@ -14,7 +14,14 @@
   //   wrangler secret put DATABASE_URL
   // ──────────────────────────────────────────────
   "vars": {
-    // Add non-secret env vars here, e.g.:
-    // "ENVIRONMENT": "production"
+    "SUPABASE_URL": "https://rtzgrumqscrbswipvakq.supabase.co",
+    "SUPABASE_ANON_KEY": "sb_publishable_0xm3Q3-wbB7pyqmdKs_Jhw_2cSZBU-6"
+  },
+
+  // ──────────────────────────────────────────────
+  // Cron Triggers
+  // ──────────────────────────────────────────────
+  "triggers": {
+    "crons": ["*/15 * * * *"] // Chạy mỗi 15 phút
   }
 }

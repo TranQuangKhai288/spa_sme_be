@@ -27,9 +27,12 @@ export const createTherapist = async (c: Context<{ Bindings: Env }>) => {
       return c.json({ error: "Tên và chuyên môn là bắt buộc" }, 400);
     }
 
+    const id = crypto.randomUUID();
+
     const { data, error } = await sb
       .from("Therapist")
       .insert({
+        id,
         name,
         avatar: avatar || "",
         specialty,
