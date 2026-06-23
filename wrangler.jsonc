@@ -15,7 +15,10 @@
   // ──────────────────────────────────────────────
   "vars": {
     "SUPABASE_URL": "https://rtzgrumqscrbswipvakq.supabase.co",
-    "SUPABASE_ANON_KEY": "sb_publishable_0xm3Q3-wbB7pyqmdKs_Jhw_2cSZBU-6"
+    "SUPABASE_ANON_KEY": "sb_publishable_0xm3Q3-wbB7pyqmdKs_Jhw_2cSZBU-6",
+    "PUSHER_APP_ID": "2169540",
+    "PUSHER_KEY": "8eb79877edc1faa7a89b",
+    "PUSHER_CLUSTER": "ap1"
   },
 
   // ──────────────────────────────────────────────

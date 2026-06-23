@@ -36,6 +36,7 @@ import {
 import { updateCurrentUser } from "../controllers/user.controller.js";
 import {
   createBooking,
+  getAvailability,
   getBookings,
   updateBookingStatus,
 } from "../controllers/booking.controller.js";
@@ -109,8 +110,9 @@ router.post("/notifications/read-all", markAllNotificationsAsRead);
 router.delete("/notifications/:id", deleteNotification);
 
 // ── Bookings (Public & Admin) ────────────────────────────────────────────────
-router.post("/bookings", createBooking); // Public
-router.get("/bookings", getBookings);    // Admin/Staff only (could add checkNotTechnician if needed)
+router.get("/bookings/availability", getAvailability); // Public – lấy trạng thái slot theo ngày
+router.post("/bookings", createBooking);                // Public
+router.get("/bookings", getBookings);                   // Admin/Staff only
 router.put("/bookings/:id/status", updateBookingStatus); // Admin/Staff only
 
 export default router;
