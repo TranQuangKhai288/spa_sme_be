@@ -9,4 +9,16 @@ export interface Env {
   SUPABASE_URL: string;
   /** Supabase anon/public key */
   SUPABASE_ANON_KEY: string;
+  
+  /** Pusher App ID */
+  PUSHER_APP_ID: string;
+  /** Pusher Key */
+  PUSHER_KEY: string;
+  /** Pusher Secret */
+  PUSHER_SECRET: string;
+  /** Pusher Cluster */
+  PUSHER_CLUSTER: string;
+
+  /** SpeedSMS Access Token */
+  SPEEDSMS_TOKEN: string;
 }
