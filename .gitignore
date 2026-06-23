@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
-*.log
-.prisma/
 .dev.vars
+*.log
+logs/
+.prisma/
+.wrangler/
